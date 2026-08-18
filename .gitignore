@@ -1,4 +1,6 @@
 .env
+.vercel
+.env.local
 data/index.json
 __pycache__/
 .pytest_cache/
