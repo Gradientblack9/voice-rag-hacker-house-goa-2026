@@ -1,0 +1,32 @@
+{
+  "benchmark": "msmarco_xi_text_pipeline",
+  "target_ms": 200,
+  "target_met": true,
+  "queries": 100,
+  "distinct_queries": 100,
+  "index_chunks": 26991,
+  "index_load_ms_excluded_from_runtime": 5475.712,
+  "p50_ms": 17.035,
+  "p70_ms": 20.457,
+  "p100_ms": 40.509,
+  "mean_ms": 13.971,
+  "statuses": {
+    "answered": 31,
+    "abstained": 69,
+    "rejected": 0,
+    "error": 0
+  },
+  "errors": 0,
+  "retries": 0,
+  "stage_average_ms": {
+    "stt": 0.0,
+    "preprocessing": 0.011,
+    "embedding": 0.102,
+    "retrieval": 11.676,
+    "rerank": 1.261,
+    "generation": 0.105,
+    "grounding": 0.13,
+    "total": 13.971
+  },
+  "limitations": "Text pipeline only; measure Sarvam STT separately using real audio and the deployment region."
+}
