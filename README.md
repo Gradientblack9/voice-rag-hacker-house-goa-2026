@@ -2,7 +2,7 @@
 
 An end-to-end, evidence-first Voice RAG service: audio is transcribed by a replaceable Sarvam adapter, then routed through safety checks, hybrid retrieval, an extractive/local generation adapter, grounding verification, and typed API responses.
 
-The landing experience includes selectable English, Hindi, Bengali, Tamil and Telugu speech/UI modes, Sarvam automatic language detection, and persistent light/dark appearance settings.
+The landing experience includes selectable English, Hindi, Bengali, Tamil and Telugu speech/UI modes, Sarvam automatic language detection, persistent light/dark appearance settings, and a microphone-reactive voice button whose glow follows live input volume.
 
 ## Architecture
 

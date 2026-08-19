@@ -53,6 +53,11 @@ let phase = 'ready';
 let busy = false;
 let recorder;
 let chunks = [];
+let audioContext;
+let audioSource;
+let analyser;
+let meterFrame;
+let smoothedVoiceLevel = 0;
 
 const copy = () => translations[languageSelect.value] || translations.unknown;
 const show = message => { status.textContent = message; };
@@ -62,6 +67,58 @@ function updateButton() {
   const text = copy();
   if (phase === 'listening') start.innerHTML = `${buttonIcon('stop')} ${text.send}`;
   else start.innerHTML = `${buttonIcon('microphone')} ${text.ask}`;
+}
+
+function paintVoiceLevel(level) {
+  start.style.setProperty('--voice-scale', (1.015 + level * 0.065).toFixed(3));
+  start.style.setProperty('--voice-ring-scale', (1.08 + level * 0.18).toFixed(3));
+  start.style.setProperty('--voice-blur', `${Math.round(24 + level * 48)}px`);
+  start.style.setProperty('--voice-spread', `${Math.round(2 + level * 8)}px`);
+  start.style.setProperty('--voice-alpha', (0.28 + level * 0.52).toFixed(2));
+  start.style.setProperty('--voice-haze-alpha', (0.17 + level * 0.33).toFixed(2));
+  start.style.setProperty('--voice-icon-scale', (1 + level * 0.3).toFixed(3));
+}
+
+function startVoiceVisualization(stream) {
+  start.classList.add('is-listening');
+  paintVoiceLevel(0);
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  audioContext = new AudioContextClass();
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.72;
+  audioSource = audioContext.createMediaStreamSource(stream);
+  audioSource.connect(analyser);
+  const samples = new Uint8Array(analyser.fftSize);
+  const updateMeter = () => {
+    analyser.getByteTimeDomainData(samples);
+    let energy = 0;
+    for (const sample of samples) {
+      const amplitude = (sample - 128) / 128;
+      energy += amplitude * amplitude;
+    }
+    const rms = Math.sqrt(energy / samples.length);
+    const level = Math.min(1, Math.max(0, (rms - 0.018) * 9));
+    smoothedVoiceLevel = smoothedVoiceLevel * 0.68 + level * 0.32;
+    paintVoiceLevel(smoothedVoiceLevel);
+    meterFrame = requestAnimationFrame(updateMeter);
+  };
+  updateMeter();
+}
+
+function stopVoiceVisualization() {
+  if (meterFrame) cancelAnimationFrame(meterFrame);
+  meterFrame = undefined;
+  audioSource?.disconnect();
+  audioSource = undefined;
+  analyser = undefined;
+  if (audioContext && audioContext.state !== 'closed') audioContext.close().catch(() => {});
+  audioContext = undefined;
+  smoothedVoiceLevel = 0;
+  start.classList.remove('is-listening');
+  paintVoiceLevel(0);
 }
 
 function applyLanguage() {
@@ -119,12 +176,14 @@ async function listen() {
   if (busy) return;
   busy = true;
   result.hidden = true;
+  let stream;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     chunks = [];
     recorder = new MediaRecorder(stream);
     recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
     recorder.onstop = async () => {
+      stopVoiceVisualization();
       try {
         await send(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }));
       } catch (error) {
@@ -137,10 +196,13 @@ async function listen() {
       }
     };
     recorder.start();
+    startVoiceVisualization(stream);
     phase = 'listening';
     show(copy().listening);
     updateButton();
   } catch (_) {
+    stopVoiceVisualization();
+    stream?.getTracks().forEach(track => track.stop());
     busy = false;
     phase = 'ready';
     show(copy().permission);
