@@ -1,5 +1,5 @@
 import time
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from app.models.schemas import QueryRequest, VoiceRAGResponse
 from app.harness.pipeline import VoiceRAGPipeline
 from app.stt.sarvam import SarvamSTT
@@ -11,9 +11,9 @@ def build_router(pipeline: VoiceRAGPipeline):
     @router.post("/query",response_model=VoiceRAGResponse)
     async def query(payload: QueryRequest): return await pipeline.run_text(payload.query)
     @router.post("/voice-query",response_model=VoiceRAGResponse)
-    async def voice_query(audio: UploadFile=File(...)):
+    async def voice_query(audio: UploadFile=File(...), language_code: str=Form("unknown")):
         start=time.perf_counter()
-        try: transcript=await SarvamSTT(settings.sarvam_api_key).transcribe(audio.filename or "audio.webm",await audio.read())
+        try: transcript=await SarvamSTT(settings.sarvam_api_key).transcribe(audio.filename or "audio.webm",await audio.read(),language_code)
         except ValueError as exc: raise HTTPException(503,detail=str(exc)) from exc
         return await pipeline.run_text(transcript, transcript, (time.perf_counter()-start)*1000)
     @router.get("/metrics")

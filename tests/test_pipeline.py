@@ -2,6 +2,7 @@ import pytest
 from app.retrieval.hybrid import HybridStore
 from app.chunking.router import chunk_document
 from app.harness.pipeline import VoiceRAGPipeline
+from app.stt.sarvam import normalize_language_code
 @pytest.fixture
 def pipeline():
     # The store remains in-memory for deterministic, filesystem-free tests.
@@ -17,3 +18,7 @@ async def test_off_topic_rejected(pipeline):
 async def test_weak_partial_match_abstains(pipeline):
     r=await pipeline.run_text('What is the capital of India?')
     assert r.status == 'abstained' and r.reason == 'insufficient_context'
+
+def test_sarvam_language_normalization():
+    assert normalize_language_code('hi-IN') == 'hi-IN'
+    assert normalize_language_code('unsupported') == 'unknown'
