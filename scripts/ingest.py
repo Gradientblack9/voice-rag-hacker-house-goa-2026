@@ -8,11 +8,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.chunking.router import chunk_document
 from app.retrieval.hybrid import HybridStore
 from app.config import settings
+
+def _as_text_list(value) -> list[str]:
+    """Normalize Parquet/NumPy passage arrays without stringifying the array."""
+    if value is None: return []
+    if hasattr(value, "tolist"): value=value.tolist()
+    if not isinstance(value, (list, tuple)): value=[value]
+    return [str(item).strip() for item in value if item is not None and str(item).strip()]
+
+def _usable_answer(value) -> str:
+    answers=_as_text_list(value)
+    if not answers: return ""
+    text=" ".join(answers).strip()
+    normalized=text.casefold().strip(" .")
+    no_answer_markers=("कोई उत्तर नहीं मिला", "no answer", "answer not found", "not available", "n/a")
+    return "" if any(marker in normalized for marker in no_answer_markers) else text
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--split", default="validation")
     parser.add_argument("--language", default="hi", help="MSMARCO-XI language config, e.g. hi, ta, te")
     parser.add_argument("--limit",type=int,default=5000)
+    parser.add_argument("--lite-limit",type=int,default=2000,help="Answered rows bundled for serverless deployment")
     args=parser.parse_args()
     try:
         import pandas as pd
@@ -27,6 +44,7 @@ def main():
         raise SystemExit(f"Could not download {filename} from MSMARCO-XI: {exc}") from exc
     frame = pd.read_parquet(local_file).head(args.limit)
     store=HybridStore(settings.index_path); store.records=[]
+    lite_store=HybridStore("data/index-lite.json"); lite_store.records=[]
     fields = None
     for i, raw_row in frame.iterrows():
         row = raw_row.to_dict()
@@ -39,10 +57,19 @@ def main():
             passage_text = passages.get("Translated_passages")
         if passage_text is None:
             passage_text = []
-        text = "\n".join(passage_text) if isinstance(passage_text, list) else str(passage_text)
-        # The answer is indexed with its retrieved passages so both facts and
-        # source provenance remain available at query time.
-        text = "\n".join(part for part in [row.get("Answer", ""), text] if part)
-        if text: store.add(chunk_document(str(row.get("query_id",i)), text, "ai4bharat/MSMARCO-XI", {"fields": fields, "language": args.language, "query": row.get("query", "")}))
-    store.save(); print({"dataset_file":filename,"dataset_fields":fields or [],"indexed_chunks":len(store.records),"path":str(store.path)})
+        text = "\n".join(_as_text_list(passage_text))
+        # Keep both ground-truth answers with their passages. Generation can
+        # then return the answer matching the query language without trying to
+        # synthesize one from unrelated lower-ranked passage sentences.
+        translated_answer=_usable_answer(row.get("Answer"))
+        english_answer=_usable_answer(row.get("Eng_Answer"))
+        text = "\n".join(part for part in [english_answer, translated_answer, text] if part)
+        metadata={"fields": fields, "language": args.language, "query": row.get("query", ""), "english_query": row.get("Eng_Query", ""), "answer": translated_answer, "english_answer": english_answer}
+        if text: store.add(chunk_document(str(row.get("query_id",i)), text, "ai4bharat/MSMARCO-XI", metadata))
+        if len(lite_store.records) < args.lite_limit and (english_answer or translated_answer):
+            compact_metadata={key:metadata[key] for key in ("language","query","english_query","answer","english_answer")}
+            compact_text="\n".join(part for part in [english_answer,translated_answer] if part)
+            lite_store.add(chunk_document(str(row.get("query_id",i)),compact_text,"ai4bharat/MSMARCO-XI",compact_metadata))
+    store.save(); lite_store.save()
+    print({"dataset_file":filename,"dataset_fields":fields or [],"indexed_chunks":len(store.records),"path":str(store.path),"lite_chunks":len(lite_store.records),"lite_path":str(lite_store.path)})
 if __name__=="__main__": main()

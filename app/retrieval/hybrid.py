@@ -26,7 +26,10 @@ class HybridStore:
             self.records = json.loads(self.path.read_text(encoding="utf-8"))
             self._build_index()
     def save(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True); self.path.write_text(json.dumps(self.records), encoding="utf-8")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_name(f"{self.path.name}.tmp")
+        temporary.write_text(json.dumps(self.records), encoding="utf-8")
+        temporary.replace(self.path)
     def add(self, chunks: list[Chunk]):
         self.records.extend({"chunk_id": c.chunk_id, "document_id": c.document_id, "text": c.text, "source": c.source,
                              "metadata": c.metadata, "vector": vector(c.text)} for c in chunks)
@@ -35,8 +38,10 @@ class HybridStore:
         for index, item in enumerate(self.records):
             # MSMARCO-XI's source query is useful retrieval metadata. Index it
             # with the passage while preserving passage-only answer context.
-            source_query = str(item.get("metadata", {}).get("query", ""))
-            counts = Counter(tokens(f'{source_query} {item["text"]}'))
+            metadata = item.get("metadata", {})
+            source_query = str(metadata.get("query", ""))
+            english_query = str(metadata.get("english_query", ""))
+            counts = Counter(tokens(f'{source_query} {english_query} {item["text"]}'))
             self._token_counts.append(counts)
             for word in counts: self._postings[word].add(index)
         self._indexed_count = len(self.records)
@@ -48,6 +53,7 @@ class HybridStore:
         keyword_start = time.perf_counter()
         if self._indexed_count != len(self.records): self._build_index()
         qtokens = tokens(query)
+        normalized_query = " ".join(qtokens)
         stopwords = {"a","an","the","what","which","who","where","when","why","how","is","are","was","were","of","in","to","for","and","does","do"}
         meaningful = {word for word in qtokens if len(word) > 2 and word not in stopwords} or set(qtokens)
         total_docs = max(1, len(self.records))
@@ -76,7 +82,13 @@ class HybridStore:
             rarity_norm = rarity / max(1.0, len(meaningful) * math.log(total_docs + 1))
             semantic = sum(item["vector"][position] * weight for position, weight in qv.items())
             phrase_bonus = .08 if " ".join(qtokens) in item["text"].lower() else 0
-            score = .68 * coverage + .22 * rarity_norm + .10 * semantic + phrase_bonus
+            metadata = item.get("metadata", {})
+            source_queries = {
+                " ".join(tokens(str(metadata.get("query", "")))),
+                " ".join(tokens(str(metadata.get("english_query", "")))),
+            }
+            source_query_bonus = .18 if normalized_query and normalized_query in source_queries else 0
+            score = .68 * coverage + .22 * rarity_norm + .10 * semantic + phrase_bonus + source_query_bonus
             scored.append({**item, "score": round(min(score, 1.0), 4), "retrieval_method": "hybrid"})
         hits = heapq.nlargest(k, scored, key=lambda item: item["score"])
         return hits, keyword_ms, (time.perf_counter() - rerank_start) * 1000

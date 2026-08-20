@@ -1,4 +1,4 @@
-import time, uuid
+import time, uuid, re
 from collections import OrderedDict
 from app.config import settings
 from app.models.schemas import VoiceRAGResponse, Citation, Latency
@@ -12,6 +12,11 @@ class VoiceRAGPipeline:
     def __init__(self, store: HybridStore): self.store, self._cache = store, OrderedDict()
     async def run_text(self, query: str, transcript: str | None = None, stt_ms: float = 0) -> VoiceRAGResponse:
         start=time.perf_counter(); latency=Latency(stt=stt_ms); request_id=str(uuid.uuid4())
+        conversational = self._conversational_reply(query)
+        if conversational:
+            latency.total=stt_ms+(time.perf_counter()-start)*1000
+            response=VoiceRAGResponse(request_id=request_id,transcript=transcript or query,status="answered",answer=conversational,grounded=False,confidence=1,reason="assistant_help",latency_ms=latency)
+            metrics.record(response); return response
         stage=time.perf_counter(); decision=input_decision(query); latency.preprocessing=(time.perf_counter()-stage)*1000
         if decision: return self._abstain(request_id, transcript or query, decision, latency, start, "I can only help with safe questions grounded in the indexed corpus.")
         cache_key=" ".join(query.lower().split())
@@ -34,7 +39,7 @@ class VoiceRAGPipeline:
             if fallback: hits=[fallback]
         if (not hits or hits[0]["score"] < settings.grounding_threshold
                 or not evidence_sufficient(query, hits[:settings.rerank_top_k])):
-            return self._abstain(request_id, transcript or query, "insufficient_context", latency, start, "I could not find enough information in the provided knowledge base to answer reliably.")
+            return self._abstain(request_id, transcript or query, "insufficient_context", latency, start, self._try_questions())
         stage=time.perf_counter(); text=answer(query,hits[:settings.rerank_top_k]); latency.generation=(time.perf_counter()-stage)*1000
         stage=time.perf_counter(); is_grounded=grounded(text,hits); latency.grounding=(time.perf_counter()-stage)*1000
         if (not text or not is_grounded) and settings.enable_wikipedia_fallback and hits[0].get("retrieval_method") != "wikipedia_fallback":
@@ -43,12 +48,24 @@ class VoiceRAGPipeline:
                 hits=[fallback]
                 stage=time.perf_counter(); text=answer(query,hits); latency.generation += (time.perf_counter()-stage)*1000
                 stage=time.perf_counter(); is_grounded=grounded(text,hits); latency.grounding += (time.perf_counter()-stage)*1000
-        if not text or not is_grounded: return self._abstain(request_id, transcript or query, "ungrounded_answer", latency, start, "I cannot answer reliably from the retrieved evidence.")
+        answers_query = bool(text) and evidence_sufficient(query, [{"text": text}])
+        if not text or not is_grounded or not answers_query: return self._abstain(request_id, transcript or query, "ungrounded_answer", latency, start, self._try_questions())
         latency.total=stt_ms+(time.perf_counter()-start)*1000
         response=VoiceRAGResponse(request_id=request_id,transcript=transcript or query,status="answered",answer=text,grounded=True,confidence=hits[0]["score"],citations=[Citation(chunk_id=x["chunk_id"],source=x["source"],score=x["score"]) for x in hits[:2]],latency_ms=latency)
         self._cache[cache_key]=response.model_copy(deep=True)
         if len(self._cache)>256: self._cache.popitem(last=False)
         metrics.record(response); return response
+    @staticmethod
+    def _try_questions() -> str:
+        return "I could not verify an answer from the local knowledge base. Try asking: What is a corporation? What is honesty? Why did Rachel Carson write An Obligation to Endure?"
+    @classmethod
+    def _conversational_reply(cls, query: str) -> str | None:
+        cleaned=" ".join(query.lower().strip().split())
+        if re.fullmatch(r"(?:hi|hello|hey)(?:\s+(?:model|assistant|bot))?[!. ]*", cleaned) or cleaned in {"namaste", "नमस्ते"}:
+            return "Hi! " + cls._try_questions().replace("I could not verify an answer from the local knowledge base. ", "")
+        if re.search(r"\b(?:what can (?:you|i) (?:answer|ask)|help me|show examples)\b", cleaned):
+            return cls._try_questions().replace("I could not verify an answer from the local knowledge base. ", "")
+        return None
     def _abstain(self, rid, transcript, reason, latency, start, text):
         latency.total=latency.stt+(time.perf_counter()-start)*1000
         response=VoiceRAGResponse(request_id=rid,transcript=transcript,status="rejected" if reason in {"unsafe_input","off_topic"} else "abstained",answer=text,grounded=False,reason=reason,latency_ms=latency); metrics.record(response); return response

@@ -10,6 +10,8 @@ from app.api.routes import build_router
 ROOT_DIR = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT_DIR / "frontend"
 INDEX_PATH = ROOT_DIR / settings.index_path
+if not INDEX_PATH.exists():
+    INDEX_PATH = ROOT_DIR / "data" / "index-lite.json"
 
 store = HybridStore(str(INDEX_PATH))
 try:

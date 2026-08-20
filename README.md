@@ -4,6 +4,10 @@ An end-to-end, evidence-first Voice RAG service: audio is transcribed by a repla
 
 The landing experience includes selectable English, Hindi, Bengali, Tamil and Telugu speech/UI modes, Sarvam automatic language detection, persistent light/dark appearance settings, and a microphone-reactive voice button whose glow follows live input volume.
 
+The default assistant is closed-corpus: it answers questions present in the local MSMARCO-XI index and abstains when it cannot verify an answer. Working examples are shown below the voice button, including “What is a corporation?”, “What is honesty?”, and “Why did Rachel Carson write An Obligation to Endure?”. Greetings such as “Hey model” return this guidance directly.
+
+Local ingestion writes the full `data/index.json` plus a compact `data/index-lite.json` containing verified answer rows for serverless deployment. The app automatically uses the compact index when the full local index is unavailable.
+
 ## Architecture
 
 `voice → Sarvam STT → validation/guardrails → hybrid vector + keyword retrieval → grounded generator → grounding check → response`

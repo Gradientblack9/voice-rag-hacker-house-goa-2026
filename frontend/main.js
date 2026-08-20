@@ -151,7 +151,8 @@ function render(data) {
   document.querySelector('#transcript').textContent = data.transcript ? `${text.transcript}: ${data.transcript}` : '';
   document.querySelector('#answer').textContent = data.answer;
   const source = data.citations?.[0]?.source;
-  document.querySelector('#details').textContent = `${data.status} · ${data.grounded ? text.grounded : text.notGrounded} · ${Math.round(data.latency_ms?.total || 0)}ms${source ? ` · Source: ${source}` : ''}`;
+  const evidenceLabel = data.reason === 'assistant_help' ? 'guidance' : (data.grounded ? text.grounded : text.notGrounded);
+  document.querySelector('#details').textContent = `${data.status} · ${evidenceLabel} · ${Math.round(data.latency_ms?.total || 0)}ms${source ? ` · Source: ${source}` : ''}`;
   show(data.status === 'answered' ? text.answerReady : `${text.response}: ${data.reason || data.status}`);
 }
 
