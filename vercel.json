@@ -1,7 +1,7 @@
 {
   "functions": {
     "app/main.py": {
-      "includeFiles": "frontend/**"
+      "includeFiles": "{frontend/**,data/index-lite.json}"
     }
   }
 }
