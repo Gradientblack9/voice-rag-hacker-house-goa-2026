@@ -6,7 +6,7 @@ The landing experience includes selectable English, Hindi, Bengali, Tamil and Te
 
 The default assistant is closed-corpus: it answers questions present in the local MSMARCO-XI index and abstains when it cannot verify an answer. Working examples are shown below the voice button, including “What is a corporation?”, “What is honesty?”, and “Why did Rachel Carson write An Obligation to Endure?”. Greetings such as “Hey model” return this guidance directly.
 
-Local ingestion writes the full `data/index.json` plus a compact `app/index-lite.json` containing verified answer rows for serverless deployment. The app automatically uses the compact index when the full local index is unavailable.
+Local ingestion writes the full `data/index.json`, an ignored compact build artifact at `data/index-lite.json`, and a compressed generated Python module containing verified answer rows for serverless deployment. The app automatically reconstructs this embedded index when the full local index is unavailable.
 
 ## Architecture
 
