@@ -44,7 +44,7 @@ def main():
         raise SystemExit(f"Could not download {filename} from MSMARCO-XI: {exc}") from exc
     frame = pd.read_parquet(local_file).head(args.limit)
     store=HybridStore(settings.index_path); store.records=[]
-    lite_store=HybridStore("data/index-lite.json"); lite_store.records=[]
+    lite_store=HybridStore("app/index-lite.json"); lite_store.records=[]
     fields = None
     for i, raw_row in frame.iterrows():
         row = raw_row.to_dict()
